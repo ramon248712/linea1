@@ -41,7 +41,7 @@ function asociarDni($telefono, $dni) {
     while (($line = fgetcsv($fp, 0, ";")) !== false) {
         if (count($line) >= 5) {
             if ($line[1] == $dni) {
-                $line[4] = $telefono; // Actualiza el WhatsApp
+                $line[4] = $telefono;
                 $encontrado = $line;
             }
             $lineas[] = $line;
@@ -60,11 +60,14 @@ function asociarDni($telefono, $dni) {
 
 function notificarPorCorreo($deudor) {
     $to = "rgonzalezcuervoabogados@gmail.com";
-    $subject = "Nuevo contacto en línea 1";
+    $subject = "📩 Nuevo contacto en línea 1";
     $message = "El deudor {$deudor['nombre']} (DNI: {$deudor['dni']}) se comunicó a la línea 1.\nTeléfono: {$deudor['whatsapp']}";
     $headers = "From: notificaciones@cuervoabogados.com";
 
-    mail($to, $subject, $message, $headers);
+    // Guardamos intento de envío para control
+    file_put_contents("log_email.txt", date("Y-m-d H:i") . " - Enviando correo a $to\n", FILE_APPEND);
+
+    return mail($to, $subject, $message, $headers);
 }
 
 $respuesta = "";
@@ -81,37 +84,42 @@ if ($deudor) {
 
     $respuesta = "Hola $nombre, podés escribirle directamente a tu ejecutivo desde este enlace:\n$url";
 
-    // Si es la línea 1 (Rami), notificamos
-    if ($telefonoBase == "1170587681") {
+    // Solo si es línea 1 (por su número en el CSV)
+    if ($wa === "1170587681") {
         notificarPorCorreo($deudor);
     }
 
 } elseif (preg_match('/\b\d{7,8}\b/', $message, $coincidencia)) {
     $dni = $coincidencia[0];
-    $deudor = asociarDni($telefonoBase, $dni);
-    if ($deudor) {
-        $nombre = ucfirst(strtolower($deudor[0]));
-        $ejecutivo = $deudor[3];
-        $wa = preg_replace('/\D/', '', $deudor[4]);
+    $deudorAsociado = asociarDni($telefonoBase, $dni);
+    if ($deudorAsociado) {
+        $nombre = ucfirst(strtolower($deudorAsociado[0]));
+        $ejecutivo = $deudorAsociado[3];
+        $wa = preg_replace('/\D/', '', $deudorAsociado[4]);
 
         $mensajeWa = "Hola $ejecutivo, soy *$nombre* (DNI: *$dni*), tengo una consulta";
         $url = "https://wa.me/549$wa?text=" . urlencode($mensajeWa);
 
         $respuesta = "Hola $nombre, podés escribirle directamente a tu ejecutivo desde este enlace:\n$url";
 
-        if ($telefonoBase == "1170587681") {
+        if ($wa === "1170587681") {
             notificarPorCorreo([
                 "nombre" => $nombre,
                 "dni" => $dni,
                 "whatsapp" => $wa
             ]);
         }
+
+        // 🔴 Esto evita que siga procesando y mande otro mensaje más
+        echo json_encode(["reply" => $respuesta]);
+        exit;
     } else {
         $respuesta = "No encontramos deuda con ese DNI. ¿Podrías verificar si está bien escrito?";
+        echo json_encode(["reply" => $respuesta]);
+        exit;
     }
 } else {
     $respuesta = "Hola. ¿Podrías indicarnos tu DNI (sin puntos) para identificarte?";
+    echo json_encode(["reply" => $respuesta]);
+    exit;
 }
-
-echo json_encode(["reply" => $respuesta]);
-exit;
