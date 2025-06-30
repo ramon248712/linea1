@@ -20,7 +20,13 @@ function buscarDeudor($telefono) {
             $telCsv = substr(preg_replace('/\D/', '', $line[4]), -10);
             if ($telCsv === $telBase) {
                 fclose($fp);
-                return ["nombre" => $line[0], "dni" => $line[1], "telefono" => $line[2], "ejecutivo" => $line[3]];
+                return [
+                    "nombre" => $line[0],
+                    "dni" => $line[1],
+                    "telefono" => $line[2],
+                    "ejecutivo" => $line[3],
+                    "whatsapp" => $line[4]
+                ];
             }
         }
     }
@@ -33,7 +39,14 @@ $deudor = buscarDeudor($telefonoConPrefijo);
 
 if ($deudor) {
     $nombre = ucfirst(strtolower($deudor["nombre"]));
-    $respuesta = "Hola $nombre, te estará contactando tu ejecutivo a cargo *{$deudor['ejecutivo']}* en breve.";
+    $dni = $deudor["dni"];
+    $ejecutivo = $deudor["ejecutivo"];
+    $wa = preg_replace('/\D/', '', $deudor["whatsapp"]);
+
+    $mensajeWa = "Hola $ejecutivo, soy *$nombre* (DNI: *$dni*), tengo una consulta";
+    $url = "https://wa.me/549$wa?text=" . urlencode($mensajeWa);
+
+    $respuesta = "Hola $nombre, podés escribirle directamente a tu ejecutivo desde este enlace:\n$url";
 } else {
     $respuesta = "Hola. ¿Podrías indicarnos tu DNI para identificarte?";
 }
