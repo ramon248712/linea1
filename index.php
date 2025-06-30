@@ -1,30 +1,30 @@
 <?php
-ini_set('display_errors', 0);
-error_reporting(0);
+// Configuracion general
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
 date_default_timezone_set("America/Argentina/Buenos_Aires");
 header('Content-Type: application/json');
 
+// Captura
 $sender = preg_replace('/\D/', '', $_POST["sender"] ?? "");
-$message = strtolower(trim($_POST["message"] ?? ""));
+$message = trim($_POST["message"] ?? "");
 $telefonoBase = substr($sender, -10);
 $telefonoConPrefijo = "+549" . $telefonoBase;
 
-function buscarDeudor($telefono) {
-    if (!file_exists("deudores.csv")) return null;
-    $fp = fopen("deudores.csv", "r");
-    $telBase = substr(preg_replace('/\D/', '', $telefono), -10);
+$csv = "deudores.csv";
+$respuesta = "";
+
+function buscarPorTelefono($telefono) {
+    global $csv;
+    if (!file_exists($csv)) return null;
+    $fp = fopen($csv, "r");
     while (($line = fgetcsv($fp, 0, ";")) !== false) {
         if (count($line) >= 5) {
-            $telCsv = substr(preg_replace('/\D/', '', $line[4]), -10);
-            if ($telCsv === $telBase) {
+            $tel = preg_replace('/\D/', '', $line[2]);
+            if (substr($tel, -10) === substr($telefono, -10)) {
                 fclose($fp);
-                return [
-                    "nombre" => $line[0],
-                    "dni" => $line[1],
-                    "telefono" => $line[2],
-                    "ejecutivo" => $line[3],
-                    "whatsapp" => $line[4]
-                ];
+                return ["nombre" => $line[0], "dni" => $line[1], "telefono" => $line[2], "ejecutivo" => $line[3], "tel_ejecutivo" => $line[4]];
             }
         }
     }
@@ -32,94 +32,69 @@ function buscarDeudor($telefono) {
     return null;
 }
 
-function asociarDni($telefono, $dni) {
-    $telefono = preg_replace('/\D/', '', $telefono);
-    $nuevo = "+549" . substr($telefono, -10);
+function buscarPorDNI($dni) {
+    global $csv;
+    if (!file_exists($csv)) return null;
+    $fp = fopen($csv, "r");
     $lineas = [];
     $encontrado = null;
-    $fp = fopen("deudores.csv", "r");
+
     while (($line = fgetcsv($fp, 0, ";")) !== false) {
         if (count($line) >= 5) {
             if ($line[1] == $dni) {
-                $line[4] = $telefono;
+                $line[2] = "+549" . substr(preg_replace('/\D/', '', $_POST["sender"] ?? ""), -10); // actualiza el telefono
                 $encontrado = $line;
             }
             $lineas[] = $line;
         }
     }
     fclose($fp);
+
     if ($encontrado) {
-        $fp = fopen("deudores.csv", "w");
-        foreach ($lineas as $line) {
-            fputcsv($fp, $line, ";");
-        }
+        $fp = fopen($csv, "w");
+        foreach ($lineas as $l) fputcsv($fp, $l, ";");
         fclose($fp);
+        return ["nombre" => $encontrado[0], "dni" => $encontrado[1], "telefono" => $encontrado[2], "ejecutivo" => $encontrado[3], "tel_ejecutivo" => $encontrado[4]];
     }
-    return $encontrado;
+
+    return null;
 }
 
-function notificarPorCorreo($deudor) {
-    $to = "rgonzalezcuervoabogados@gmail.com";
-    $subject = "📩 Nuevo contacto en línea 1";
-    $message = "El deudor {$deudor['nombre']} (DNI: {$deudor['dni']}) se comunicó a la línea 1.\nTeléfono: {$deudor['whatsapp']}";
+function notificarEjecutivo($email, $nombre, $dni, $telefono, $mensaje) {
+    $asunto = "Nuevo mensaje de deudor $nombre";
+    $cuerpo = "Mensaje recibido:\n\nNombre: $nombre\nDNI: $dni\nTeléfono: $telefono\n\nMensaje:\n$mensaje";
     $headers = "From: notificaciones@cuervoabogados.com";
-
-    // Guardamos intento de envío para control
-    file_put_contents("log_email.txt", date("Y-m-d H:i") . " - Enviando correo a $to\n", FILE_APPEND);
-
-    return mail($to, $subject, $message, $headers);
+    @mail($email, $asunto, $cuerpo, $headers);
 }
 
-$respuesta = "";
-$deudor = buscarDeudor($telefonoConPrefijo);
-
+// Lógica principal
+$deudor = buscarPorTelefono($telefonoConPrefijo);
 if ($deudor) {
-    $nombre = ucfirst(strtolower($deudor["nombre"]));
-    $dni = $deudor["dni"];
-    $ejecutivo = $deudor["ejecutivo"];
-    $wa = preg_replace('/\D/', '', $deudor["whatsapp"]);
+    $link = "https://wa.me/54" . preg_replace('/\D/', '', $deudor["tel_ejecutivo"]) .
+            "?text=" . urlencode("Hola {$deudor["ejecutivo"]}, soy *{$deudor["nombre"]}* (DNI: *{$deudor["dni"]}*), tengo una consulta");
+    $respuesta = "Hola {$deudor["nombre"]}, podés escribirle directamente a tu ejecutivo desde este enlace:\n$link";
 
-    $mensajeWa = "Hola $ejecutivo, soy *$nombre* (DNI: *$dni*), tengo una consulta";
-    $url = "https://wa.me/549$wa?text=" . urlencode($mensajeWa);
+    // Notificar por email
+    $email_ejecutivo = $deudor["ejecutivo"] . "cuervoabogados@gmail.com";
+    notificarEjecutivo($email_ejecutivo, $deudor["nombre"], $deudor["dni"], $telefonoConPrefijo, $message);
+} elseif (preg_match('/\b\d{7,8}\b/', $message, $coincidencias)) {
+    $dni = $coincidencias[0];
+    $deudor = buscarPorDNI($dni);
+    if ($deudor) {
+        $link = "https://wa.me/54" . preg_replace('/\D/', '', $deudor["tel_ejecutivo"]) .
+                "?text=" . urlencode("Hola {$deudor["ejecutivo"]}, soy *{$deudor["nombre"]}* (DNI: *{$deudor["dni"]}*), tengo una consulta");
+        $respuesta = "Hola {$deudor["nombre"]}, podés escribirle directamente a tu ejecutivo desde este enlace:\n$link";
 
-    $respuesta = "Hola $nombre, podés escribirle directamente a tu ejecutivo desde este enlace:\n$url";
-
-    // Solo si es línea 1 (por su número en el CSV)
-    if ($wa === "1170587681") {
-        notificarPorCorreo($deudor);
-    }
-
-} elseif (preg_match('/\b\d{7,8}\b/', $message, $coincidencia)) {
-    $dni = $coincidencia[0];
-    $deudorAsociado = asociarDni($telefonoBase, $dni);
-    if ($deudorAsociado) {
-        $nombre = ucfirst(strtolower($deudorAsociado[0]));
-        $ejecutivo = $deudorAsociado[3];
-        $wa = preg_replace('/\D/', '', $deudorAsociado[4]);
-
-        $mensajeWa = "Hola $ejecutivo, soy *$nombre* (DNI: *$dni*), tengo una consulta";
-        $url = "https://wa.me/549$wa?text=" . urlencode($mensajeWa);
-
-        $respuesta = "Hola $nombre, podés escribirle directamente a tu ejecutivo desde este enlace:\n$url";
-
-        if ($wa === "1170587681") {
-            notificarPorCorreo([
-                "nombre" => $nombre,
-                "dni" => $dni,
-                "whatsapp" => $wa
-            ]);
-        }
-
-        // 🔴 Esto evita que siga procesando y mande otro mensaje más
-        echo json_encode(["reply" => $respuesta]);
-        exit;
+        // Notificar por email
+        $email_ejecutivo = $deudor["ejecutivo"] . "cuervoabogados@gmail.com";
+        notificarEjecutivo($email_ejecutivo, $deudor["nombre"], $deudor["dni"], $telefonoConPrefijo, $message);
     } else {
-        $respuesta = "No encontramos deuda con ese DNI. ¿Podrías verificar si está bien escrito?";
-        echo json_encode(["reply" => $respuesta]);
-        exit;
+        $respuesta = "Hola. No encontramos deuda con ese DNI. ¿Podrías verificar si está bien escrito?";
     }
 } else {
     $respuesta = "Hola. ¿Podrías indicarnos tu DNI (sin puntos) para identificarte?";
-    echo json_encode(["reply" => $respuesta]);
-    exit;
 }
+
+file_put_contents("historial_derivador.txt", date("Y-m-d H:i") . " | $sender => $message\n", FILE_APPEND);
+echo json_encode(["reply" => $respuesta]);
+exit;
