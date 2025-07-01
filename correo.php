@@ -15,7 +15,7 @@ function enviarCorreo($destino, $asunto, $cuerpo) {
         $mail->Host = 'smtp.gmail.com';
         $mail->SMTPAuth = true;
         $mail->Username = 'rgonzalezcuervoabogados@gmail.com'; // Tu Gmail
-        $mail->Password = 'CLAVE_APP'; // Clave de aplicación (ver paso siguiente)
+        $mail->Password = 'ppqf cyah kotw byki'; // Clave de aplicación (ver paso siguiente)
         $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
         $mail->Port = 587;
 
