@@ -2,9 +2,9 @@
 use PHPMailer\PHPMailer\PHPMailer;
 use PHPMailer\PHPMailer\Exception;
 
-require_once __DIR__ . '/phpmailer/PHPMailer.php';
-require_once __DIR__ . '/phpmailer/SMTP.php';
-require_once __DIR__ . '/phpmailer/Exception.php';
+require_once __DIR__.'/PHPMailer/PHPMailer-master/src/PHPMailer.php';
+require_once __DIR__.'/PHPMailer/PHPMailer-master/src/SMTP.php';
+require_once __DIR__.'/PHPMailer/PHPMailer-master/src/Exception.php';
 
 function enviarCorreo($destino, $asunto, $cuerpo) {
     $mail = new PHPMailer(true);
