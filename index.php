@@ -6,6 +6,8 @@ error_reporting(E_ALL);
 date_default_timezone_set("America/Argentina/Buenos_Aires");
 header('Content-Type: application/json');
 
+require_once __DIR__ . "/correo.php"; // PHPMailer
+
 $sender = preg_replace('/\D/', '', $_POST["sender"] ?? "");
 $message = trim($_POST["message"] ?? "");
 $telefonoBase = substr($sender, -10);
@@ -41,7 +43,7 @@ function buscarPorDNI($dni, $nuevoTelefono) {
     while (($line = fgetcsv($fp, 0, ";")) !== false) {
         if (count($line) >= 5) {
             if ($line[1] == $dni) {
-                $line[2] = $nuevoTelefono; // actualiza el teléfono
+                $line[2] = $nuevoTelefono;
                 $encontrado = $line;
             }
             $lineas[] = $line;
@@ -63,8 +65,7 @@ function notificarEjecutivo($ejecutivo, $nombre, $dni, $telefono, $mensaje) {
     $correo = $ejecutivo . "cuervoabogados@gmail.com";
     $asunto = "Nuevo mensaje de deudor: $nombre";
     $cuerpo = "Mensaje recibido:\n\nNombre: $nombre\nDNI: $dni\nTeléfono: $telefono\n\nMensaje:\n$mensaje";
-    $headers = "From: notificaciones@cuervoabogados.com";
-    @mail($correo, $asunto, $cuerpo, $headers);
+    enviarCorreo($correo, $asunto, $cuerpo);
 }
 
 function generarLink($deudor) {
@@ -98,4 +99,3 @@ if ($deudor) {
 file_put_contents("historial_derivador.txt", date("Y-m-d H:i") . " | $sender => $message\n", FILE_APPEND);
 echo json_encode(["reply" => $respuesta]);
 exit;
-?>
