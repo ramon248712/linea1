@@ -1,12 +1,11 @@
 <?php
-// Configuración general
 ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
 date_default_timezone_set("America/Argentina/Buenos_Aires");
 header('Content-Type: application/json');
 
-require_once __DIR__ . "/correo.php"; // PHPMailer
+require_once __DIR__ . '/correo.php';
 
 $sender = preg_replace('/\D/', '', $_POST["sender"] ?? "");
 $message = trim($_POST["message"] ?? "");
@@ -43,7 +42,7 @@ function buscarPorDNI($dni, $nuevoTelefono) {
     while (($line = fgetcsv($fp, 0, ";")) !== false) {
         if (count($line) >= 5) {
             if ($line[1] == $dni) {
-                $line[2] = $nuevoTelefono;
+                $line[2] = $nuevoTelefono; // actualiza el teléfono
                 $encontrado = $line;
             }
             $lineas[] = $line;
@@ -61,24 +60,17 @@ function buscarPorDNI($dni, $nuevoTelefono) {
     return null;
 }
 
-function notificarEjecutivo($ejecutivo, $nombre, $dni, $telefono, $mensaje) {
-    $correo = $ejecutivo . "cuervoabogados@gmail.com";
-    $asunto = "Nuevo mensaje de deudor: $nombre";
-    $cuerpo = "Mensaje recibido:\n\nNombre: $nombre\nDNI: $dni\nTeléfono: $telefono\n\nMensaje:\n$mensaje";
-    enviarCorreo($correo, $asunto, $cuerpo);
-}
-
 function generarLink($deudor) {
     return "https://wa.me/54" . preg_replace('/\D/', '', $deudor["tel_ejecutivo"]) .
            "?text=" . urlencode("Hola {$deudor["ejecutivo"]}, soy *{$deudor["nombre"]}* (DNI: *{$deudor["dni"]}*), tengo una consulta");
 }
 
-// Lógica principal
+// --- Procesar mensaje ---
 $deudor = buscarPorTelefono($telefonoConPrefijo);
 if ($deudor) {
     $link = generarLink($deudor);
     $respuesta = "Hola {$deudor["nombre"]}, podés escribirle directamente a tu ejecutivo desde este enlace:\n$link";
-    notificarEjecutivo($deudor["ejecutivo"], $deudor["nombre"], $deudor["dni"], $telefonoConPrefijo, $message);
+    EnviarCorreo($deudor["ejecutivo"] . "cuervoabogados@gmail.com", "Nuevo mensaje de deudor", "Mensaje:\n\nNombre: {$deudor["nombre"]}\nDNI: {$deudor["dni"]}\nTeléfono: $telefonoConPrefijo\n\n$message");
 
 } elseif (preg_match('/\b\d{7,8}\b/', $message, $coincidencias)) {
     $dni = $coincidencias[0];
@@ -88,7 +80,7 @@ if ($deudor) {
     if ($deudor) {
         $link = generarLink($deudor);
         $respuesta = "Hola {$deudor["nombre"]}, podés escribirle directamente a tu ejecutivo desde este enlace:\n$link";
-        notificarEjecutivo($deudor["ejecutivo"], $deudor["nombre"], $deudor["dni"], $nuevoTel, $message);
+        EnviarCorreo($deudor["ejecutivo"] . "cuervoabogados@gmail.com", "Nuevo mensaje de deudor", "Mensaje:\n\nNombre: {$deudor["nombre"]}\nDNI: {$deudor["dni"]}\nTeléfono: $nuevoTel\n\n$message");
     } else {
         $respuesta = "Hola. No encontramos deuda con ese DNI. ¿Podrías verificar si está bien escrito?";
     }
