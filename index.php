@@ -60,7 +60,7 @@ function enviarCorreo($nombre, $dni, $telefono) {
 $mail->addAddress($correoEjecutivo, $row['ejecutivo']);
 
         $mail->Subject = 'Nuevo contacto de deudor';
-        $mail->Body    = "Nombre: $nombre<br>DNI: $dni<br>Teléfono: $telefono";
+       $mail->Body = "Nombre: {$row['nombre']}<br>DNI: {$row['dni']}<br>Teléfono: {$senderBase}<br><br><b>Mensaje recibido:</b><br>{$message}";
         $mail->isHTML(true);
         $mail->send();
     } catch (Exception $e) {
