@@ -79,7 +79,7 @@ if (preg_match('/^\d{7,8}$/', $message)) {
     $actualizado = false;
 
     foreach ($deudores as &$row) {
-        if ($row['dni'] === $message && strlen($row['telefono']) < 5) {
+        if ($row['dni'] === $message && $row['telefono'] !== $senderBase) {
             $row['telefono'] = $senderBase;
             $actualizado = true;
 
