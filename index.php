@@ -69,7 +69,7 @@ function enviarCorreo($nombre, $dni, $telefono, $ejecutivo, $conversacionComplet
         $mail->SMTPSecure = 'tls';
         $mail->Port       = 587;
 
-        $mail->setFrom('rgonzalezcuervoabogados@gmail.com', 'Bot Legal');
+        $mail->setFrom('rgonzalezcuervoabogados@gmail.com', 'YNE');
         $correoEjecutivo = strtolower(str_replace(' ', '', $ejecutivo)) . 'cuervoabogados@gmail.com';
         $mail->addAddress($correoEjecutivo, $ejecutivo);
 
