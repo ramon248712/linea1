@@ -1,93 +1,120 @@
 <?php
-ini_set('display_errors', 1);
-ini_set('display_startup_errors', 1);
-error_reporting(E_ALL);
+require_once __DIR__ . '/PHPMailer/PHPMailer.php';
+require_once __DIR__ . '/PHPMailer/SMTP.php';
+require_once __DIR__ . '/PHPMailer/Exception.php';
+
+use PHPMailer\PHPMailer\PHPMailer;
+use PHPMailer\PHPMailer\Exception;
+
 date_default_timezone_set("America/Argentina/Buenos_Aires");
 header('Content-Type: application/json');
 
-require_once __DIR__ . '/correo.php';
+// 📩 Datos que envía WhatsAuto
+$app     = $_POST["app"] ?? '';
+$sender  = preg_replace('/\D/', '', $_POST["sender"] ?? '');
+$message = strtolower(trim($_POST["message"] ?? ''));
 
-$sender = preg_replace('/\D/', '', $_POST["sender"] ?? "");
-$message = trim($_POST["message"] ?? "");
-$telefonoBase = substr($sender, -10);
-$telefonoConPrefijo = "+549" . $telefonoBase;
+// 🧠 Cargar base de deudores
+$csvFile = __DIR__ . '/deudores.csv';
+$respondidosFile = __DIR__ . '/respondidos.json';
 
-$csv = "deudores.csv";
-$respuesta = "";
+// Cargar deudores
+$deudores = [];
+if (file_exists($csvFile)) {
+    $file = fopen($csvFile, 'r');
+    while (($data = fgetcsv($file, 0, ';')) !== false) {
+        $deudores[] = [
+            'nombre'     => $data[0] ?? '',
+            'dni'        => $data[1] ?? '',
+            'telefono'   => $data[2] ?? '',
+            'ejecutivo'  => $data[3] ?? '',
+            'tel_ejec'   => $data[4] ?? '',
+        ];
+    }
+    fclose($file);
+}
 
-function buscarPorTelefono($telefono) {
-    global $csv;
-    if (!file_exists($csv)) return null;
-    $fp = fopen($csv, "r");
-    while (($line = fgetcsv($fp, 0, ";")) !== false) {
-        if (count($line) >= 5) {
-            $tel = preg_replace('/\D/', '', $line[2]);
-            if (substr($tel, -10) === substr($telefono, -10)) {
-                fclose($fp);
-                return ["nombre" => $line[0], "dni" => $line[1], "telefono" => $line[2], "ejecutivo" => $line[3], "tel_ejecutivo" => $line[4]];
+// Cargar historial de respondidos
+$respondidos = file_exists($respondidosFile)
+    ? json_decode(file_get_contents($respondidosFile), true)
+    : [];
+
+// 🚫 Si ya respondimos antes
+if (in_array($sender, $respondidos)) {
+    echo json_encode(["reply" => "Contacte al encargado de su gestión a través del link proporcionado."]);
+    exit;
+}
+
+// 📍 Buscar si el teléfono ya está registrado en deudores
+foreach ($deudores as $row) {
+    if ($row['telefono'] === $sender) {
+        // ➕ Marcar como respondido
+        $respondidos[] = $sender;
+        file_put_contents($respondidosFile, json_encode($respondidos));
+
+        echo json_encode(["reply" => "Contacte al encargado de su gestión a través del link proporcionado."]);
+        exit;
+    }
+}
+
+// 📍 Si no está el número → ¿es un DNI?
+if (preg_match('/^\d{7,8}$/', $message)) {
+    $actualizado = false;
+
+    foreach ($deudores as &$row) {
+        if ($row['dni'] === $message && empty($row['telefono'])) {
+            // 💾 Guardar nuevo teléfono
+            $row['telefono'] = $sender;
+            $actualizado = true;
+
+            // ✅ Guardar el CSV actualizado
+            $f = fopen($csvFile, 'w');
+            foreach ($deudores as $d) {
+                fputcsv($f, $d, ';');
             }
+            fclose($f);
+
+            // ➕ Marcar como respondido
+            $respondidos[] = $sender;
+            file_put_contents($respondidosFile, json_encode($respondidos));
+
+            // 📩 Enviar correo al ejecutivo
+            try {
+                $mail = new PHPMailer(true);
+                $mail->isSMTP();
+                $mail->Host       = 'smtp.gmail.com';
+                $mail->SMTPAuth   = true;
+                $mail->Username   = 'rgonzalezcuervoabogados@gmail.com'; // tu Gmail
+                $mail->Password   = 'ppqf cyah kotw byki';               // clave de app
+                $mail->SMTPSecure = 'tls';
+                $mail->Port       = 587;
+
+                $mail->setFrom('rgonzalezcuervoabogados@gmail.com', 'Bot Legal');
+                $mail->addAddress('ejecutivocuervoabogados@gmail.com', 'Ejecutivo');
+
+                $mail->Subject = 'Nuevo contacto de deudor';
+                $mail->Body = "Número: $sender<br>DNI: {$message}<br>Mensaje: {$_POST["message"]}";
+
+                $mail->isHTML(true);
+                $mail->send();
+            } catch (Exception $e) {
+                // no interrumpe la lógica si falla
+            }
+
+            // 🔗 Enviar link al deudor
+            $link = "https://wa.me/54{$row['tel_ejec']}?text=" . urlencode("Hola {$row['ejecutivo']}, soy *{$row['nombre']}* (DNI: *{$row['dni']}*), tengo una consulta");
+            $reply = "Hola {$row['nombre']}, podés escribirle directamente a tu ejecutivo desde este enlace:\n{$link}";
+            echo json_encode(["reply" => $reply]);
+            exit;
         }
     }
-    fclose($fp);
-    return null;
-}
 
-function buscarPorDNI($dni, $nuevoTelefono) {
-    global $csv;
-    if (!file_exists($csv)) return null;
-    $fp = fopen($csv, "r");
-    $lineas = [];
-    $encontrado = null;
-
-    while (($line = fgetcsv($fp, 0, ";")) !== false) {
-        if (count($line) >= 5) {
-            if ($line[1] == $dni) {
-                $line[2] = $nuevoTelefono; // actualiza el teléfono
-                $encontrado = $line;
-            }
-            $lineas[] = $line;
-        }
+    if (!$actualizado) {
+        echo json_encode(["reply" => "No encontramos tu DNI. Por favor, revisá que esté bien escrito (solo números)."]);
+        exit;
     }
-    fclose($fp);
-
-    if ($encontrado) {
-        $fp = fopen($csv, "w");
-        foreach ($lineas as $l) fputcsv($fp, $l, ";");
-        fclose($fp);
-        return ["nombre" => $encontrado[0], "dni" => $encontrado[1], "telefono" => $encontrado[2], "ejecutivo" => $encontrado[3], "tel_ejecutivo" => $encontrado[4]];
-    }
-
-    return null;
 }
 
-function generarLink($deudor) {
-    return "https://wa.me/54" . preg_replace('/\D/', '', $deudor["tel_ejecutivo"]) .
-           "?text=" . urlencode("Hola {$deudor["ejecutivo"]}, soy *{$deudor["nombre"]}* (DNI: *{$deudor["dni"]}*), tengo una consulta");
-}
-
-// --- Procesar mensaje ---
-$deudor = buscarPorTelefono($telefonoConPrefijo);
-if ($deudor) {
-    $link = generarLink($deudor);
-    $respuesta = "Hola {$deudor["nombre"]}, podés escribirle directamente a tu ejecutivo desde este enlace:\n$link";
-    EnviarCorreo($deudor["ejecutivo"] . "cuervoabogados@gmail.com", "Nuevo mensaje de deudor", "Mensaje:\n\nNombre: {$deudor["nombre"]}\nDNI: {$deudor["dni"]}\nTeléfono: $telefonoConPrefijo\n\n$message");
-
-} elseif (preg_match('/\b\d{7,8}\b/', $message, $coincidencias)) {
-    $dni = $coincidencias[0];
-    $nuevoTel = "+549" . substr(preg_replace('/\D/', '', $sender), -10);
-    $deudor = buscarPorDNI($dni, $nuevoTel);
-
-    if ($deudor) {
-        $link = generarLink($deudor);
-        $respuesta = "Hola {$deudor["nombre"]}, podés escribirle directamente a tu ejecutivo desde este enlace:\n$link";
-        EnviarCorreo($deudor["ejecutivo"] . "cuervoabogados@gmail.com", "Nuevo mensaje de deudor", "Mensaje:\n\nNombre: {$deudor["nombre"]}\nDNI: {$deudor["dni"]}\nTeléfono: $nuevoTel\n\n$message");
-    } else {
-        $respuesta = "Hola. No encontramos deuda con ese DNI. ¿Podrías verificar si está bien escrito?";
-    }
-} else {
-    $respuesta = "Hola. ¿Podrías indicarnos tu DNI (sin puntos) para identificarte?";
-}
-
-file_put_contents("historial_derivador.txt", date("Y-m-d H:i") . " | $sender => $message\n", FILE_APPEND);
-echo json_encode(["reply" => $respuesta]);
+// 🔁 Si no es número registrado ni DNI válido
+echo json_encode(["reply" => "Hola. Por favor, escribí tu DNI (solo números)."]);
 exit;
