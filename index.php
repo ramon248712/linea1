@@ -32,9 +32,14 @@ if (file_exists($csvFile)) {
     fclose($file);
 }
 
-$respondidos = file_exists($respondidosFile)
-    ? json_decode(file_get_contents($respondidosFile), true)
-    : [];
+$respondidos = [];
+if (file_exists($respondidosFile)) {
+    $contenido = file_get_contents($respondidosFile);
+    $decodificado = json_decode($contenido, true);
+    if (is_array($decodificado)) {
+        $respondidos = $decodificado;
+    }
+}
 
 if (in_array($senderBase, $respondidos)) {
     echo json_encode(["reply" => "Contactá al encargado de tu gestión usando el link enviado anteriormente."]);
