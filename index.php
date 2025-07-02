@@ -84,7 +84,7 @@ function enviarCorreo($nombre, $dni, $telefono, $ejecutivo, $conversacionComplet
         $textoConversacion = nl2br(htmlspecialchars(implode("\n", $soloMensajes)));
 
         $mail->Body = "Nombre: {$nombre}<br>DNI: {$dni}<br>Teléfono: {$telefono}<br><br>
-                       <b>Conversación completa:</b><br>{$textoConversacion}";
+                       <b>El deudor escribió:</b><br>{$textoConversacion}";
         $mail->isHTML(true);
         $mail->send();
     } catch (Exception $e) {
