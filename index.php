@@ -44,7 +44,7 @@ $respondidos = file_exists($respondidosFile)
 
 if (!is_array($respondidos)) $respondidos = [];
 
-function enviarCorreo($nombre, $dni, $telefono) {
+function enviarCorreo($nombre, $dni, $telefono, $ejecutivo, $mensaje) {
     try {
         $mail = new PHPMailer(true);
         $mail->isSMTP();
@@ -56,11 +56,11 @@ function enviarCorreo($nombre, $dni, $telefono) {
         $mail->Port       = 587;
 
         $mail->setFrom('rgonzalezcuervoabogados@gmail.com', 'Bot Legal');
-        $correoEjecutivo = strtolower(str_replace(' ', '', $row['ejecutivo'])) . 'cuervoabogados@gmail.com';
-$mail->addAddress($correoEjecutivo, $row['ejecutivo']);
+        $correoEjecutivo = strtolower(str_replace(' ', '', $ejecutivo)) . 'cuervoabogados@gmail.com';
+        $mail->addAddress($correoEjecutivo, $ejecutivo);
 
         $mail->Subject = 'Nuevo contacto de deudor';
-       $mail->Body = "Nombre: {$row['nombre']}<br>DNI: {$row['dni']}<br>Teléfono: {$senderBase}<br><br><b>Mensaje recibido:</b><br>{$message}";
+        $mail->Body = "Nombre: {$nombre}<br>DNI: {$dni}<br>Teléfono: {$telefono}<br><br><b>Mensaje recibido:</b><br>{$mensaje}";
         $mail->isHTML(true);
         $mail->send();
     } catch (Exception $e) {
@@ -68,14 +68,13 @@ $mail->addAddress($correoEjecutivo, $row['ejecutivo']);
     }
 }
 
-// Paso 1: Ver si el número ya existe y enviar mensaje con link + correo
+// Paso 1: Si el número ya existe en CSV, responder con link y enviar correo (una sola vez)
 foreach ($deudores as $row) {
     if ($row['telefono'] === $senderBase) {
         if (!in_array($senderBase, $respondidos)) {
             $respondidos[] = $senderBase;
             file_put_contents($respondidosFile, json_encode($respondidos, JSON_PRETTY_PRINT));
-
-            enviarCorreo($row['nombre'], $row['dni'], $senderBase);
+            enviarCorreo($row['nombre'], $row['dni'], $senderBase, $row['ejecutivo'], $message);
         }
 
         $link = "https://wa.me/54{$row['tel_ejec']}?text=" . urlencode("Hola {$row['ejecutivo']}, soy *{$row['nombre']}* (DNI: *{$row['dni']}*), tengo una consulta");
@@ -84,7 +83,7 @@ foreach ($deudores as $row) {
     }
 }
 
-// Paso 2: Ver si el mensaje es un DNI y actualizar CSV si corresponde
+// Paso 2: Si manda un DNI válido
 if (preg_match('/\b(\d{7,8})\b/', $message, $coinc)) {
     $dni = $coinc[1];
     $actualizado = false;
@@ -94,6 +93,7 @@ if (preg_match('/\b(\d{7,8})\b/', $message, $coinc)) {
             $row['telefono'] = $senderBase;
             $actualizado = true;
 
+            // Guardar CSV actualizado
             $f = fopen($csvFile, 'w');
             foreach ($deudores as $d) {
                 fputcsv($f, [$d['nombre'], $d['dni'], $d['telefono'], $d['ejecutivo'], $d['tel_ejec']], ';');
@@ -103,14 +103,13 @@ if (preg_match('/\b(\d{7,8})\b/', $message, $coinc)) {
     }
 
     if ($actualizado) {
-        // Volvemos a buscar para aplicar lógica como en paso 1
+        // Volver a buscar y seguir flujo
         foreach ($deudores as $row) {
             if ($row['telefono'] === $senderBase) {
                 if (!in_array($senderBase, $respondidos)) {
                     $respondidos[] = $senderBase;
                     file_put_contents($respondidosFile, json_encode($respondidos, JSON_PRETTY_PRINT));
-
-                    enviarCorreo($row['nombre'], $row['dni'], $senderBase);
+                    enviarCorreo($row['nombre'], $row['dni'], $senderBase, $row['ejecutivo'], $message);
                 }
 
                 $link = "https://wa.me/54{$row['tel_ejec']}?text=" . urlencode("Hola {$row['ejecutivo']}, soy *{$row['nombre']}* (DNI: *{$row['dni']}*), tengo una consulta");
@@ -124,6 +123,7 @@ if (preg_match('/\b(\d{7,8})\b/', $message, $coinc)) {
     }
 }
 
-// Si no es un número conocido ni un DNI válido
+// Si no está el número ni mandó un DNI válido
 echo json_encode(["reply" => "Hola. Por favor, escribí tu DNI (solo números)."]);
 exit;
+?>
