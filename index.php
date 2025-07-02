@@ -58,7 +58,7 @@ $conversaciones[$senderBase][] = date("Y-m-d H:i") . " > " . $message;
 file_put_contents($conversacionesFile, json_encode($conversaciones, JSON_PRETTY_PRINT));
 
 // Función de envío de correo
-function enviarCorreo($nombre, $dni, $telefono, $ejecutivo, $mensajeFinal, $conversacionCompleta) {
+function enviarCorreo($nombre, $dni, $telefono, $ejecutivo, $conversacionCompleta) {
     try {
         $mail = new PHPMailer(true);
         $mail->isSMTP();
@@ -73,12 +73,17 @@ function enviarCorreo($nombre, $dni, $telefono, $ejecutivo, $mensajeFinal, $conv
         $correoEjecutivo = strtolower(str_replace(' ', '', $ejecutivo)) . 'cuervoabogados@gmail.com';
         $mail->addAddress($correoEjecutivo, $ejecutivo);
 
-        $mail->Subject = 'Nuevo contacto de deudor';
+        $mail->Subject = "{$dni} {$nombre} {$telefono}";
 
-        $textoConversacion = nl2br(htmlspecialchars(implode("\n", $conversacionCompleta)));
+        // Limpiar fechas y horas de los mensajes
+        $soloMensajes = array_map(function($linea) {
+            $partes = explode(' > ', $linea, 2);
+            return isset($partes[1]) ? $partes[1] : $linea;
+        }, $conversacionCompleta);
+
+        $textoConversacion = nl2br(htmlspecialchars(implode("\n", $soloMensajes)));
 
         $mail->Body = "Nombre: {$nombre}<br>DNI: {$dni}<br>Teléfono: {$telefono}<br><br>
-                       <b>Último mensaje:</b><br>{$mensajeFinal}<br><br>
                        <b>Conversación completa:</b><br>{$textoConversacion}";
         $mail->isHTML(true);
         $mail->send();
@@ -99,9 +104,8 @@ foreach ($deudores as $row) {
         $respondidos[] = $senderBase;
         file_put_contents($respondidosFile, json_encode($respondidos, JSON_PRETTY_PRINT));
 
-        enviarCorreo($row['nombre'], $row['dni'], $senderBase, $row['ejecutivo'], $message, $conversaciones[$senderBase] ?? []);
+        enviarCorreo($row['nombre'], $row['dni'], $senderBase, $row['ejecutivo'], $conversaciones[$senderBase] ?? []);
 
-        // Borrar conversación guardada
         unset($conversaciones[$senderBase]);
         file_put_contents($conversacionesFile, json_encode($conversaciones, JSON_PRETTY_PRINT));
 
@@ -130,7 +134,7 @@ if (preg_match('/\b(\d{7,8})\b/', $message, $coinc)) {
             $respondidos[] = $senderBase;
             file_put_contents($respondidosFile, json_encode($respondidos, JSON_PRETTY_PRINT));
 
-            enviarCorreo($row['nombre'], $row['dni'], $senderBase, $row['ejecutivo'], $message, $conversaciones[$senderBase] ?? []);
+            enviarCorreo($row['nombre'], $row['dni'], $senderBase, $row['ejecutivo'], $conversaciones[$senderBase] ?? []);
             unset($conversaciones[$senderBase]);
             file_put_contents($conversacionesFile, json_encode($conversaciones, JSON_PRETTY_PRINT));
 
