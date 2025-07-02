@@ -14,6 +14,11 @@ $sender  = preg_replace('/\D/', '', $_POST["sender"] ?? '');
 $message = strtolower(trim($_POST["message"] ?? ''));
 $senderBase = substr($sender, -10);
 
+if (strlen($senderBase) != 10) {
+    echo json_encode(["reply" => ""]);
+    exit;
+}
+
 $csvFile = __DIR__ . '/deudores.csv';
 $respondidosFile = __DIR__ . '/respondidos.json';
 
@@ -21,12 +26,13 @@ $deudores = [];
 if (file_exists($csvFile)) {
     $file = fopen($csvFile, 'r');
     while (($data = fgetcsv($file, 0, ';')) !== false) {
+        if (count($data) < 5) continue;
         $deudores[] = [
-            'nombre'     => $data[0] ?? '',
-            'dni'        => $data[1] ?? '',
-            'telefono'   => substr(preg_replace('/\D/', '', $data[2] ?? ''), -10),
-            'ejecutivo'  => $data[3] ?? '',
-            'tel_ejec'   => preg_replace('/\D/', '', $data[4] ?? ''),
+            'nombre'     => $data[0],
+            'dni'        => $data[1],
+            'telefono'   => substr(preg_replace('/\D/', '', $data[2]), -10),
+            'ejecutivo'  => $data[3],
+            'tel_ejec'   => preg_replace('/\D/', '', $data[4]),
         ];
     }
     fclose($file);
@@ -36,15 +42,13 @@ $respondidos = file_exists($respondidosFile)
     ? json_decode(file_get_contents($respondidosFile), true)
     : [];
 
-if (!is_array($respondidos)) {
-    $respondidos = [];
-}
+if (!is_array($respondidos)) $respondidos = [];
 
 foreach ($deudores as $row) {
     if ($row['telefono'] === $senderBase) {
         if (!in_array($senderBase, $respondidos)) {
             $respondidos[] = $senderBase;
-            file_put_contents($respondidosFile, json_encode($respondidos));
+            file_put_contents($respondidosFile, json_encode($respondidos, JSON_PRETTY_PRINT));
 
             try {
                 $mail = new PHPMailer(true);
@@ -52,7 +56,7 @@ foreach ($deudores as $row) {
                 $mail->Host       = 'smtp.gmail.com';
                 $mail->SMTPAuth   = true;
                 $mail->Username   = 'rgonzalezcuervoabogados@gmail.com';
-                $mail->Password   = 'ppqf cyah kotw byki';
+                $mail->Password   = 'ppqf cyah kotw byki'; // ⚠️ Usa variable de entorno idealmente
                 $mail->SMTPSecure = 'tls';
                 $mail->Port       = 587;
 
@@ -60,11 +64,11 @@ foreach ($deudores as $row) {
                 $mail->addAddress('ejecutivocuervoabogados@gmail.com', 'Ejecutivo');
 
                 $mail->Subject = 'Nuevo contacto de deudor';
-                $mail->Body = "Nombre: {$row['nombre']}<br>DNI: {$row['dni']}<br>Teléfono: {$senderBase}";
+                $mail->Body    = "Nombre: {$row['nombre']}<br>DNI: {$row['dni']}<br>Teléfono: {$senderBase}";
                 $mail->isHTML(true);
                 $mail->send();
             } catch (Exception $e) {
-                file_put_contents("mail_error_log.txt", date("Y-m-d H:i") . " | Error al enviar mail: " . $mail->ErrorInfo . "\n", FILE_APPEND);
+                file_put_contents("mail_error_log.txt", date("Y-m-d H:i") . " | Mail error: " . $mail->ErrorInfo . "\n", FILE_APPEND);
             }
         }
 
@@ -74,11 +78,12 @@ foreach ($deudores as $row) {
     }
 }
 
-if (preg_match('/^\d{7,8}$/', $message)) {
+if (preg_match('/\\b(\\d{7,8})\\b/', $message, $coinc)) {
+    $dni = $coinc[1];
     $actualizado = false;
 
     foreach ($deudores as &$row) {
-        if ($row['dni'] === $message && $row['telefono'] !== $senderBase) {
+        if ($row['dni'] === $dni && $row['telefono'] !== $senderBase) {
             $row['telefono'] = $senderBase;
             $actualizado = true;
 
@@ -89,7 +94,7 @@ if (preg_match('/^\d{7,8}$/', $message)) {
             fclose($f);
 
             $respondidos[] = $senderBase;
-            file_put_contents($respondidosFile, json_encode($respondidos));
+            file_put_contents($respondidosFile, json_encode($respondidos, JSON_PRETTY_PRINT));
 
             try {
                 $mail = new PHPMailer(true);
@@ -105,11 +110,11 @@ if (preg_match('/^\d{7,8}$/', $message)) {
                 $mail->addAddress('ejecutivocuervoabogados@gmail.com', 'Ejecutivo');
 
                 $mail->Subject = 'Nuevo contacto de deudor';
-                $mail->Body = "Nombre: {$row['nombre']}<br>DNI: {$row['dni']}<br>Teléfono: {$senderBase}";
+                $mail->Body    = "Nombre: {$row['nombre']}<br>DNI: {$row['dni']}<br>Teléfono: {$senderBase}";
                 $mail->isHTML(true);
                 $mail->send();
             } catch (Exception $e) {
-                file_put_contents("mail_error_log.txt", date("Y-m-d H:i") . " | Error al enviar mail: " . $mail->ErrorInfo . "\n", FILE_APPEND);
+                file_put_contents("mail_error_log.txt", date("Y-m-d H:i") . " | Mail error: " . $mail->ErrorInfo . "\n", FILE_APPEND);
             }
 
             $link = "https://wa.me/54{$row['tel_ejec']}?text=" . urlencode("Hola {$row['ejecutivo']}, soy *{$row['nombre']}* (DNI: *{$row['dni']}*), tengo una consulta");
