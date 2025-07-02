@@ -73,7 +73,7 @@ function enviarCorreo($nombre, $dni, $telefono, $ejecutivo, $conversacionComplet
         $correoEjecutivo = strtolower(str_replace(' ', '', $ejecutivo)) . 'cuervoabogados@gmail.com';
         $mail->addAddress($correoEjecutivo, $ejecutivo);
 
-        $mail->Subject = "{$dni} {$nombre} {$telefono}";
+        $mail->Subject = "{$dni} " . utf8_decode($nombre) . " {$telefono}";
 
         // Limpiar fechas y horas de los mensajes
         $soloMensajes = array_map(function($linea) {
