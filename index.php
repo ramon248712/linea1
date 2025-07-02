@@ -21,7 +21,20 @@ if (strlen($senderBase) != 10) {
 
 $csvFile = __DIR__ . '/deudores.csv';
 $respondidosFile = __DIR__ . '/respondidos.json';
+$conversacionesFile = __DIR__ . '/conversaciones.json';
 
+// --- Registrar mensaje en conversación ---
+$conversaciones = file_exists($conversacionesFile)
+    ? json_decode(file_get_contents($conversacionesFile), true)
+    : [];
+
+if (!isset($conversaciones[$senderBase])) {
+    $conversaciones[$senderBase] = [];
+}
+$conversaciones[$senderBase][] = date("H:i") . " | " . $_POST["message"];
+file_put_contents($conversacionesFile, json_encode($conversaciones, JSON_PRETTY_PRINT));
+
+// --- Cargar CSV de deudores ---
 $deudores = [];
 if (file_exists($csvFile)) {
     $file = fopen($csvFile, 'r');
@@ -44,14 +57,14 @@ $respondidos = file_exists($respondidosFile)
 
 if (!is_array($respondidos)) $respondidos = [];
 
-function enviarCorreo($nombre, $dni, $telefono, $ejecutivo, $mensaje) {
+function enviarCorreo($nombre, $dni, $telefono, $ejecutivo, $mensaje, $conversacion) {
     try {
         $mail = new PHPMailer(true);
         $mail->isSMTP();
         $mail->Host       = 'smtp.gmail.com';
         $mail->SMTPAuth   = true;
         $mail->Username   = 'rgonzalezcuervoabogados@gmail.com';
-        $mail->Password   = 'ppqf cyah kotw byki'; // Usar variable de entorno si es posible
+        $mail->Password   = 'ppqf cyah kotw byki';
         $mail->SMTPSecure = 'tls';
         $mail->Port       = 587;
 
@@ -60,30 +73,31 @@ function enviarCorreo($nombre, $dni, $telefono, $ejecutivo, $mensaje) {
         $mail->addAddress($correoEjecutivo, $ejecutivo);
 
         $mail->Subject = 'Nuevo contacto de deudor';
-        $mail->Body = "Nombre: {$nombre}<br>DNI: {$dni}<br>Teléfono: {$telefono}<br><br><b>Mensaje recibido:</b><br>{$mensaje}";
         $mail->isHTML(true);
+        $mail->Body = "Nombre: {$nombre}<br>DNI: {$dni}<br>Teléfono: {$telefono}<br><br><b>Conversación completa:</b><br>" . nl2br(htmlspecialchars(implode("\n", $conversacion)));
         $mail->send();
     } catch (Exception $e) {
         file_put_contents("mail_error_log.txt", date("Y-m-d H:i") . " | Mail error: " . $mail->ErrorInfo . "\n", FILE_APPEND);
     }
 }
 
-// Paso 1: Si el número ya existe en CSV, responder con link y enviar correo (una sola vez)
+// Paso 1: Ver si el número ya existe y enviar mensaje con link + correo
 foreach ($deudores as $row) {
     if ($row['telefono'] === $senderBase) {
         if (!in_array($senderBase, $respondidos)) {
             $respondidos[] = $senderBase;
             file_put_contents($respondidosFile, json_encode($respondidos, JSON_PRETTY_PRINT));
-            enviarCorreo($row['nombre'], $row['dni'], $senderBase, $row['ejecutivo'], $message);
+            enviarCorreo($row['nombre'], $row['dni'], $senderBase, $row['ejecutivo'], $message, $conversaciones[$senderBase] ?? []);
+            unset($conversaciones[$senderBase]);
+            file_put_contents($conversacionesFile, json_encode($conversaciones, JSON_PRETTY_PRINT));
         }
-
         $link = "https://wa.me/54{$row['tel_ejec']}?text=" . urlencode("Hola {$row['ejecutivo']}, soy *{$row['nombre']}* (DNI: *{$row['dni']}*), tengo una consulta");
         echo json_encode(["reply" => "Hola {$row['nombre']}, podés escribirle directamente a tu ejecutivo desde este enlace:\n{$link}"]);
         exit;
     }
 }
 
-// Paso 2: Si manda un DNI válido
+// Paso 2: Ver si el mensaje es un DNI y actualizar CSV si corresponde
 if (preg_match('/\b(\d{7,8})\b/', $message, $coinc)) {
     $dni = $coinc[1];
     $actualizado = false;
@@ -93,7 +107,6 @@ if (preg_match('/\b(\d{7,8})\b/', $message, $coinc)) {
             $row['telefono'] = $senderBase;
             $actualizado = true;
 
-            // Guardar CSV actualizado
             $f = fopen($csvFile, 'w');
             foreach ($deudores as $d) {
                 fputcsv($f, [$d['nombre'], $d['dni'], $d['telefono'], $d['ejecutivo'], $d['tel_ejec']], ';');
@@ -103,15 +116,15 @@ if (preg_match('/\b(\d{7,8})\b/', $message, $coinc)) {
     }
 
     if ($actualizado) {
-        // Volver a buscar y seguir flujo
         foreach ($deudores as $row) {
             if ($row['telefono'] === $senderBase) {
                 if (!in_array($senderBase, $respondidos)) {
                     $respondidos[] = $senderBase;
                     file_put_contents($respondidosFile, json_encode($respondidos, JSON_PRETTY_PRINT));
-                    enviarCorreo($row['nombre'], $row['dni'], $senderBase, $row['ejecutivo'], $message);
+                    enviarCorreo($row['nombre'], $row['dni'], $senderBase, $row['ejecutivo'], $message, $conversaciones[$senderBase] ?? []);
+                    unset($conversaciones[$senderBase]);
+                    file_put_contents($conversacionesFile, json_encode($conversaciones, JSON_PRETTY_PRINT));
                 }
-
                 $link = "https://wa.me/54{$row['tel_ejec']}?text=" . urlencode("Hola {$row['ejecutivo']}, soy *{$row['nombre']}* (DNI: *{$row['dni']}*), tengo una consulta");
                 echo json_encode(["reply" => "Hola {$row['nombre']}, podés escribirle directamente a tu ejecutivo desde este enlace:\n{$link}"]);
                 exit;
@@ -123,7 +136,6 @@ if (preg_match('/\b(\d{7,8})\b/', $message, $coinc)) {
     }
 }
 
-// Si no está el número ni mandó un DNI válido
+// Si no es un número conocido ni un DNI válido
 echo json_encode(["reply" => "Hola. Por favor, escribí tu DNI (solo números)."]);
 exit;
-?>
