@@ -1,23 +1,18 @@
-<?php
+<?php 
 ini_set('display_errors', 0);
 error_reporting(0);
 date_default_timezone_set("America/Argentina/Buenos_Aires");
 header('Content-Type: application/json');
 
-require_once __DIR__ . '/PHPMailer/PHPMailer.php';
-require_once __DIR__ . '/PHPMailer/SMTP.php';
-require_once __DIR__ . '/PHPMailer/Exception.php';
-
-use PHPMailer\PHPMailer\PHPMailer;
-use PHPMailer\PHPMailer\Exception;
-
 $app = $_POST["app"] ?? "";
-$sender = preg_replace('/\D/', '', $_POST["sender"] ?? "");
+$senderRaw = $_POST["sender"] ?? "";
 $message = strtolower(trim($_POST["message"] ?? ""));
 
+$sender = preg_replace('/\D/', '', $senderRaw);
+if (strlen($sender) < 10) exit(json_encode(["reply" => ""]));
 $telefonoBase = substr($sender, -10);
-if (strlen($telefonoBase) != 10) exit(json_encode(["reply" => ""]));
 $telefonoConPrefijo = "+549" . $telefonoBase;
+
 if (strlen($message) < 3 || preg_match('/^[^a-zA-Z0-9]+$/', $message)) exit(json_encode(["reply" => ""]));
 
 function saludoHora() {
@@ -61,7 +56,7 @@ function buscarDeudor($tel) {
             $telefonoCSV = normalizarTelefono($line[2]);
             if (substr($telefonoCSV, -10) === substr($tel, -10)) {
                 fclose($fp);
-                return ["nombre" => $line[0], "dni" => $line[1], "telefono" => $telefonoCSV, "ejecutivo" => $line[3], "tel_ejecutivo" => $line[4]];
+                return ["nombre" => $line[0], "dni" => $line[1], "telefono" => $telefonoCSV, "deuda" => $line[3], "ejecutivo" => $line[4]];
             }
         }
     }
@@ -69,70 +64,55 @@ function buscarDeudor($tel) {
     return null;
 }
 
-function enviarEmail($sender, $message) {
-    $mail = new PHPMailer(true);
-    try {
-        $mail->isSMTP();
-        $mail->Host       = 'smtp.gmail.com';
-        $mail->SMTPAuth   = true;
-        $mail->Username   = 'rgonzalezcuervoabogados@gmail.com';
-        $mail->Password   = 'ppqf cyah kotw byki';
-        $mail->SMTPSecure = 'tls';
-        $mail->Port       = 587;
-
-        $mail->setFrom('rgonzalezcuervoabogados@gmail.com', 'Bot Legal');
-        $mail->addAddress('rgonzalezcuervoabogados@gmail.com', 'Destinatario');
-
-        $mail->isHTML(true);
-        $mail->Subject = 'Mensaje desde WhatsAuto';
-        $mail->Body    = "Remitente: $sender<br>Mensaje: $message";
-        $mail->AltBody = "Remitente: $sender\nMensaje: $message";
-
-        $mail->send();
-    } catch (Exception $e) {
-        // Log o ignorar error de envío
-    }
+function mensajeConLink($nombre, $dni, $ejecutivo) {
+    $nombreLink = urlencode($nombre);
+    $dniLink = urlencode($dni);
+    $mensaje = "Hola $nombre, podés escribirle directamente a tu ejecutivo desde este enlace: https://wa.me/$ejecutivo?text=Hola+rgonzalez%2C+soy+%2A$nombreLink%2A+%28DNI%3A+%2A$dniLink%2A%29%2C+tengo+una+consulta";
+    return $mensaje;
 }
 
 $respuesta = "";
 $deudor = buscarDeudor($telefonoConPrefijo);
 
-if ($deudor) {
+if (contiene($message, ["equivocado", "número equivocado", "numero equivocado"])) {
+    registrarVisita($telefonoConPrefijo);
+    echo json_encode(["reply" => "Entendido. Eliminamos tu número de nuestra base de gestión."]);
+    exit;
+} elseif (contiene($message, ["gracia", "gracias", "graciah"])) {
+    $respuesta = "Gracias a vos por comunicarte. Estamos para ayudarte.";
+} elseif ($deudor) {
     $nombre = ucfirst(strtolower($deudor["nombre"]));
     $dni = $deudor["dni"];
-    $telEjecutivo = preg_replace("/[^0-9]/", "", $deudor["tel_ejecutivo"]);
-    $link = "https://wa.me/54$telEjecutivo?text=Hola+rgonzalez%2C+soy+*" . urlencode($nombre) . "*+%28DNI%3A+*" . $dni . "*%29%2C+tengo+una+consulta";
-    $respuesta = "Hola $nombre, podés escribirle directamente a tu ejecutivo desde este enlace: $link";
+    $ejecutivo = preg_replace('/\D/', '', $deudor["ejecutivo"]);
+    $respuesta = mensajeConLink($nombre, $dni, $ejecutivo);
     registrarVisita($telefonoConPrefijo);
-    enviarEmail($sender, $message);
-} elseif (preg_match('/\b(\d{1,2}\.?\d{3}\.?\d{3})\b|\b\d{7,9}\b/', $message, $coinc)) {
+} elseif (preg_match('/\b(\d{1,2}\.\d{3}\.\d{3}|\d{7,9})\b/', $message, $coinc)) {
     $dni = preg_replace('/\D/', '', $coinc[0]);
-    $lineas = [];
     $deudaEncontrada = null;
+    $lineas = [];
     if (file_exists("deudores.csv")) {
         $fp = fopen("deudores.csv", "r");
         while (($line = fgetcsv($fp, 0, ";")) !== false) {
-            if (count($line) >= 5 && trim($line[1]) == $dni) {
-                $line[2] = $telefonoConPrefijo;
-                $deudaEncontrada = ["nombre" => $line[0], "dni" => $line[1], "ejecutivo" => $line[3], "tel_ejecutivo" => $line[4]];
+            if (count($line) >= 5) {
+                if (trim($line[1]) == $dni) {
+                    $line[2] = $telefonoConPrefijo; // Actualiza teléfono
+                    $deudaEncontrada = ["nombre" => $line[0], "dni" => $line[1], "ejecutivo" => preg_replace('/\D/', '', $line[4])];
+                }
+                $lineas[] = $line;
             }
-            $lineas[] = $line;
         }
         fclose($fp);
-
-        if ($deudaEncontrada) {
-            $fp = fopen("deudores.csv", "w");
-            foreach ($lineas as $l) fputcsv($fp, $l, ";");
-            fclose($fp);
-
-            $nombre = ucfirst(strtolower($deudaEncontrada["nombre"]));
-            $link = "https://wa.me/54" . preg_replace("/[^0-9]/", "", $deudaEncontrada["tel_ejecutivo"]) . "?text=Hola+rgonzalez%2C+soy+*" . urlencode($nombre) . "*+%28DNI%3A+*" . $dni . "*%29%2C+tengo+una+consulta";
-            $respuesta = "Hola $nombre, podés escribirle directamente a tu ejecutivo desde este enlace: $link";
-            registrarVisita($telefonoConPrefijo);
-            enviarEmail($sender, $message);
-        } else {
-            $respuesta = "No encontramos deuda con ese DNI. ¿Podrías verificar si está bien escrito?";
-        }
+    }
+    if ($deudaEncontrada) {
+        $fp = fopen("deudores.csv", "w");
+        foreach ($lineas as $l) fputcsv($fp, $l, ";");
+        fclose($fp);
+        $nombre = ucfirst(strtolower($deudaEncontrada["nombre"]));
+        $ejecutivo = $deudaEncontrada["ejecutivo"];
+        $respuesta = mensajeConLink($nombre, $dni, $ejecutivo);
+        registrarVisita($telefonoConPrefijo);
+    } else {
+        $respuesta = "No encontramos deuda con ese DNI. ¿Podrías verificar si está bien escrito?";
     }
 } else {
     $respuesta = "Hola. ¿Podrías indicarnos tu DNI para identificarte?";
@@ -141,3 +121,4 @@ if ($deudor) {
 file_put_contents("historial.txt", date("Y-m-d H:i") . " | $sender => $message\n", FILE_APPEND);
 echo json_encode(["reply" => $respuesta]);
 exit;
+?>
