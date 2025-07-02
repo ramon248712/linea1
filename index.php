@@ -32,24 +32,41 @@ if (file_exists($csvFile)) {
     fclose($file);
 }
 
-$respondidos = [];
-if (file_exists($respondidosFile)) {
-    $contenido = file_get_contents($respondidosFile);
-    $decodificado = json_decode($contenido, true);
-    if (is_array($decodificado)) {
-        $respondidos = $decodificado;
-    }
-}
+$respondidos = file_exists($respondidosFile)
+    ? json_decode(file_get_contents($respondidosFile), true)
+    : [];
 
-if (in_array($senderBase, $respondidos)) {
-    echo json_encode(["reply" => "Contactá al encargado de tu gestión usando el link enviado anteriormente."]);
-    exit;
+if (!is_array($respondidos)) {
+    $respondidos = [];
 }
 
 foreach ($deudores as $row) {
     if ($row['telefono'] === $senderBase) {
-        $respondidos[] = $senderBase;
-        file_put_contents($respondidosFile, json_encode($respondidos));
+        if (!in_array($senderBase, $respondidos)) {
+            $respondidos[] = $senderBase;
+            file_put_contents($respondidosFile, json_encode($respondidos));
+
+            try {
+                $mail = new PHPMailer(true);
+                $mail->isSMTP();
+                $mail->Host       = 'smtp.gmail.com';
+                $mail->SMTPAuth   = true;
+                $mail->Username   = 'rgonzalezcuervoabogados@gmail.com';
+                $mail->Password   = 'ppqf cyah kotw byki';
+                $mail->SMTPSecure = 'tls';
+                $mail->Port       = 587;
+
+                $mail->setFrom('rgonzalezcuervoabogados@gmail.com', 'Bot Legal');
+                $mail->addAddress('ejecutivocuervoabogados@gmail.com', 'Ejecutivo');
+
+                $mail->Subject = 'Nuevo contacto de deudor';
+                $mail->Body = "Nombre: {$row['nombre']}<br>DNI: {$row['dni']}<br>Teléfono: {$senderBase}";
+                $mail->isHTML(true);
+                $mail->send();
+            } catch (Exception $e) {
+                file_put_contents("mail_error_log.txt", date("Y-m-d H:i") . " | Error al enviar mail: " . $mail->ErrorInfo . "\n", FILE_APPEND);
+            }
+        }
 
         $link = "https://wa.me/54{$row['tel_ejec']}?text=" . urlencode("Hola {$row['ejecutivo']}, soy *{$row['nombre']}* (DNI: *{$row['dni']}*), tengo una consulta");
         $reply = "Hola {$row['nombre']}, podés escribirle directamente a tu ejecutivo desde este enlace:\n{$link}";
@@ -89,10 +106,12 @@ if (preg_match('/^\d{7,8}$/', $message)) {
                 $mail->addAddress('ejecutivocuervoabogados@gmail.com', 'Ejecutivo');
 
                 $mail->Subject = 'Nuevo contacto de deudor';
-                $mail->Body = "Número: $senderBase<br>DNI: {$message}<br>Mensaje: {$_POST["message"]}";
+                $mail->Body = "Nombre: {$row['nombre']}<br>DNI: {$row['dni']}<br>Teléfono: {$senderBase}";
                 $mail->isHTML(true);
                 $mail->send();
-            } catch (Exception $e) {}
+            } catch (Exception $e) {
+                file_put_contents("mail_error_log.txt", date("Y-m-d H:i") . " | Error al enviar mail: " . $mail->ErrorInfo . "\n", FILE_APPEND);
+            }
 
             $link = "https://wa.me/54{$row['tel_ejec']}?text=" . urlencode("Hola {$row['ejecutivo']}, soy *{$row['nombre']}* (DNI: *{$row['dni']}*), tengo una consulta");
             $reply = "Hola {$row['nombre']}, podés escribirle directamente a tu ejecutivo desde este enlace:\n{$link}";
