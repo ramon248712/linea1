@@ -56,7 +56,7 @@ function enviarCorreo($nombre, $dni, $telefono) {
         $mail->Port       = 587;
 
         $mail->setFrom('rgonzalezcuervoabogados@gmail.com', 'Bot Legal');
-        $mail->addAddress('ejecutivocuervoabogados@gmail.com', 'Ejecutivo');
+        $mail->addAddress('rgonzalezcuervoabogados@gmail.com', 'Ejecutivo');
 
         $mail->Subject = 'Nuevo contacto de deudor';
         $mail->Body    = "Nombre: $nombre<br>DNI: $dni<br>Teléfono: $telefono";
